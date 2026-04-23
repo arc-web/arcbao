@@ -1,0 +1,62 @@
+# Hermes agent compose — OpenBao sidecar proxy pattern.
+# Ubuntu-based AI gateway agent (Discord, Slack, etc.)
+
+services:
+  hermes:
+    image: hermes-agent:latest
+    container_name: hermes-agent
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      # Non-credential config only.
+      # All credentials fetched from vault proxy at startup.
+      - DISCORD_HOME_CHANNEL=<your-discord-channel-id>
+      - DISCORD_REQUIRE_MENTION=true
+      - DISCORD_ALLOWED_USERS=<comma-separated-user-ids>
+      - HERMES_HOME=/opt/data
+
+    volumes:
+      - hermes-data:/opt/data
+
+      # Entrypoint (mount from host — update without rebuilding image)
+      - /docker/hermes-agent/entrypoint-openbao.sh:/entrypoint-openbao.sh:ro
+
+      # bao binary from host
+      - /usr/local/bin/bao:/usr/local/bin/bao:ro
+
+      # AppRole credentials (root-owned on host, read-only in container)
+      - /etc/openbao/hermes/role_id:/run/bao-auth/role_id:ro
+      - /etc/openbao/hermes/secret_id:/run/bao-auth/secret_id:ro
+      - /etc/openbao/hermes/agent.hcl:/run/bao-auth/agent.hcl:ro
+
+    entrypoint: ["/bin/bash", "-c", "exec /entrypoint-openbao.sh"]
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 3G
+        reservations:
+          memory: 512M
+
+    networks:
+      - hermes-net
+      - secrets-clients
+
+    healthcheck:
+      test: ["CMD", "bash", "-c", "kill -0 1"]
+      interval: 120s
+      timeout: 15s
+      retries: 3
+      start_period: 90s
+
+volumes:
+  hermes-data:
+
+networks:
+  hermes-net:
+    driver: bridge
+  secrets-clients:
+    external: true

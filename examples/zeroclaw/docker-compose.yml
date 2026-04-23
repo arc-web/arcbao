@@ -1,0 +1,117 @@
+# ZeroClaw agent compose — OpenBao sidecar proxy pattern.
+# Alpine/busybox AI agent. Same image for alpha and bravo — credentials and
+# ZEROCLAW_AGENT_PATH differentiate them.
+
+services:
+  zeroclaw-alpha:
+    image: zeroclaw-agent:latest
+    container_name: zeroclaw
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      # Selects which agent's secrets to fetch from vault
+      - ZEROCLAW_AGENT_PATH=zeroclaw-alpha
+      # Non-credential config
+      - ZEROCLAW_ALLOW_PUBLIC_BIND=true
+      - ZEROCLAW_GATEWAY_PORT=42617
+
+    volumes:
+      - zeroclaw-data:/zeroclaw-data
+
+      # Entrypoint (mount from host — update without rebuilding image)
+      - /docker/zeroclaw-agent/entrypoint-openbao.sh:/entrypoint-openbao.sh:ro
+
+      # bao binary from host
+      - /usr/local/bin/bao:/usr/local/bin/bao:ro
+
+      # AppRole credentials for zeroclaw-alpha
+      - /etc/openbao/zeroclaw-alpha/role_id:/run/bao-auth/role_id:ro
+      - /etc/openbao/zeroclaw-alpha/secret_id:/run/bao-auth/secret_id:ro
+      - /etc/openbao/zeroclaw-alpha/agent.hcl:/run/bao-auth/agent.hcl:ro
+
+    tmpfs:
+      - /run/zeroclaw:mode=1777,size=4m
+
+    entrypoint: ["/entrypoint-openbao.sh"]
+    ports:
+      - "42617:42617"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    networks:
+      - default
+      - secrets-clients
+
+    healthcheck:
+      test: ["CMD", "zeroclaw", "status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  zeroclaw-bravo:
+    image: zeroclaw-agent:latest
+    container_name: zeroclaw-bravo
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      - ZEROCLAW_AGENT_PATH=zeroclaw-bravo   # Different path = different secrets
+      - ZEROCLAW_ALLOW_PUBLIC_BIND=true
+      - ZEROCLAW_GATEWAY_PORT=42618
+
+    volumes:
+      - zeroclaw-bravo-data:/zeroclaw-data
+      - /docker/zeroclaw-agent/entrypoint-openbao.sh:/entrypoint-openbao.sh:ro
+      - /usr/local/bin/bao:/usr/local/bin/bao:ro
+
+      # AppRole credentials for zeroclaw-bravo (different from alpha)
+      - /etc/openbao/zeroclaw-bravo/role_id:/run/bao-auth/role_id:ro
+      - /etc/openbao/zeroclaw-bravo/secret_id:/run/bao-auth/secret_id:ro
+      - /etc/openbao/zeroclaw-bravo/agent.hcl:/run/bao-auth/agent.hcl:ro
+
+    tmpfs:
+      - /run/zeroclaw:mode=1777,size=4m
+
+    entrypoint: ["/entrypoint-openbao.sh"]
+    ports:
+      - "42618:42618"
+
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
+
+    networks:
+      - default
+      - secrets-clients
+
+    healthcheck:
+      test: ["CMD", "zeroclaw", "status"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  zeroclaw-data:
+  zeroclaw-bravo-data:
+
+networks:
+  default:
+  secrets-clients:
+    external: true

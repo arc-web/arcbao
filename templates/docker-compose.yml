@@ -1,0 +1,59 @@
+# Annotated docker-compose template for the OpenBao sidecar proxy pattern.
+# Replace placeholder values (marked with <angle brackets>).
+
+services:
+  my-agent:
+    image: <your-agent-image>:latest
+    container_name: my-agent
+    restart: unless-stopped
+
+    environment:
+      # Non-credential config only.
+      # Credentials are fetched from the vault proxy at startup — not passed here.
+      - MY_AGENT_SETTING=value
+      - ANOTHER_CONFIG=value
+
+    volumes:
+      # bao binary from host — statically linked Go binary, works in any container
+      - /usr/local/bin/bao:/usr/local/bin/bao:ro
+
+      # AppRole credentials — mounted read-only, staged to /tmp/bao-rw/ by entrypoint
+      - /etc/openbao/my-agent/role_id:/run/bao-auth/role_id:ro
+      - /etc/openbao/my-agent/secret_id:/run/bao-auth/secret_id:ro
+      - /etc/openbao/my-agent/agent.hcl:/run/bao-auth/agent.hcl:ro
+
+      # Entrypoint script — mount from host so you can update without rebuilding the image
+      - /docker/my-agent/entrypoint-openbao.sh:/entrypoint-openbao.sh:ro
+
+      # Persistent data volume
+      - my-agent-data:/data
+
+    entrypoint: ["/entrypoint-openbao.sh"]
+
+    networks:
+      - my-agent-net
+      - secrets-clients   # network OpenBao is reachable on (if using Docker networking)
+
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 1G
+        reservations:
+          memory: 256M
+
+    healthcheck:
+      test: ["CMD", "your-health-check-command"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+volumes:
+  my-agent-data:
+
+networks:
+  my-agent-net:
+    driver: bridge
+  secrets-clients:
+    external: true   # network shared with OpenBao container
